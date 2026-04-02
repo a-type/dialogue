@@ -1,8 +1,8 @@
 const dialogueErrorCodes = {
 	Unknown: 'unknown',
-	InvalidMessage: 'invalid_message',
 	RequestTimeout: 'request_timeout',
 	RequestFailed: 'request_failed',
+	GetUrlFailed: 'get_url_failed',
 };
 export type DialogueErrorCode =
 	(typeof dialogueErrorCodes)[keyof typeof dialogueErrorCodes];

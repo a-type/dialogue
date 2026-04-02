@@ -7,17 +7,11 @@ export async function startTestServer() {
 	const port = Math.floor(8000 + Math.random() * 1000);
 
 	const server = createServer((req, res) => {
-		const rawUrl = req.url ?? '';
-		const url = new URL(rawUrl, `http://${req.headers.host}`);
-
-		if (url.pathname === '/ws') {
-			res.writeHead(200, { 'Content-Type': 'text/plain' });
-			res.end('WebSocket server is running.\n');
-			return;
-		}
+		res.writeHead(200, { 'Content-Type': 'text/plain' });
+		res.end('WebSocket server is running.\n');
 	});
 
-	const wss = new WebSocketServer({ server });
+	const wss = new WebSocketServer({ noServer: true });
 
 	const socketToId = new WeakMap<WebSocket, number>();
 	let nextSocketId = 1;
@@ -50,8 +44,21 @@ export async function startTestServer() {
 		}
 	}
 
+	server.on('upgrade', (req, socket, head) => {
+		if (req.url === '/ws?fail=true') {
+			console.log('Simulating connection failure for WebSocket upgrade');
+			socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+			socket.destroy();
+			return;
+		}
+
+		wss.handleUpgrade(req, socket, head, function done(ws) {
+			wss.emit('connection', ws, req);
+		});
+	});
+
 	wss.on('connection', (ws, req) => {
-		console.log(`Client connected from ${req.socket.remoteAddress}`);
+		console.log(`Client connected`);
 
 		socketToId.set(ws, nextSocketId++);
 

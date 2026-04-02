@@ -13,6 +13,7 @@ A small&mdash;opinionated&mdash;robust&mdash;convenient WebSocket wrapper.
 - All subscribers return unsubcribers
 - `once()`
 - Send a "request" message which awaits a response
+- Preprocess outgoing messages
 
 ## Get started
 
@@ -99,6 +100,8 @@ connection.open();
 connection.close();
 ```
 
+If your `getUrl` configured function throws an error, it will not attempt a reconnect. It's assumed you had a non-retryable failure, like authentication failure. If you have logic like token fetching in `getUrl` you want to retry, you must handle that yourself.
+
 ### Sending and subscribing to messages
 
 ```ts
@@ -141,3 +144,5 @@ Configure whether an incoming message is treated as a pong for heartbeats with `
 Turn off default logging with `config.logger: false` or pass it your own object which implements the `ILogger` interface.
 
 When using the default logging, show debug messages by setting `DEBUG` to `dialogue` or `true` in `localStorage`.
+
+To tune the reconnection backoff settings, see options on `config.websocket`: `initialReconnectDelay`, `maxReconnectDelay`, `reconnectDelayFactor`, `maxReconnectAttempts`.

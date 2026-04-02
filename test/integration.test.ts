@@ -3,6 +3,7 @@ import { z } from 'zod/v4-mini';
 import {
 	Connection,
 	defineConfig,
+	DialogueError,
 	Logger,
 	OmitMessageProperty,
 } from '../src/index.js';
@@ -59,12 +60,14 @@ async function setup(configOverrides?: Partial<typeof baseConfig>) {
 	const config = { ...baseConfig, logger, ...configOverrides };
 	const socket = new Connection(config);
 	socket.on('*', logger.debug);
-	await new Promise((resolve) => {
-		const unsub = socket.on('welcome', () => {
-			unsub();
-			resolve(null);
+	if (config.openImmediately) {
+		await new Promise((resolve) => {
+			const unsub = socket.on('welcome', () => {
+				unsub();
+				resolve(null);
+			});
 		});
-	});
+	}
 	return socket;
 }
 
@@ -80,6 +83,63 @@ it('automatically reconnects', async ({ onTestFinished }) => {
 		socket.once('welcome', () => resolve());
 	});
 	expect(onConnect).toHaveBeenCalledTimes(1);
+});
+
+it('doesnt reconnect if getUrl fails', async ({ onTestFinished }) => {
+	const socket = await setup({
+		openImmediately: false,
+		websocket: {
+			getUrl: () => Promise.reject(new Error('Failed to get URL')),
+		},
+	});
+	onTestFinished(() => socket.close());
+
+	const onError = vi.fn();
+	try {
+		socket.websocket.onError(onError);
+		await socket.open();
+		expect(true).toBe(false); // should not reach here
+	} catch (e) {
+		// should throw.
+	}
+
+	expect(socket.websocket.reconnecting).toBe(false);
+	expect(onError).toHaveBeenCalledTimes(1);
+	const error = onError.mock.calls[0][0].error;
+	expect(error).toBeInstanceOf(Error);
+	expect(error).toHaveProperty('code', DialogueError.Code.GetUrlFailed);
+});
+
+it('waits for full reconnection before resolving open()', async ({
+	onTestFinished,
+}) => {
+	let attempt = 0;
+	const socket = await setup({
+		openImmediately: false,
+		websocket: {
+			getUrl: async () => {
+				if (attempt < 3) {
+					attempt++;
+					return `ws://localhost:${port}/ws?fail=true`;
+				}
+				return `ws://localhost:${port}/ws`;
+			},
+			// turn off exponential for tests
+			initialReconnectDelay: 100,
+			maxReconnectDelay: 100,
+			reconnectDelayFactor: 1,
+		},
+	});
+	onTestFinished(() => socket.close());
+
+	const onConnect = vi.fn();
+	socket.websocket.onConnect(onConnect);
+	const onError = vi.fn();
+	socket.websocket.onError(onError);
+
+	await socket.open();
+	expect(onConnect).toHaveBeenCalledTimes(1);
+	expect(onError).toHaveBeenCalledTimes(3);
 });
 
 it('preprocesses messages', async ({ onTestFinished }) => {

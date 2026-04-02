@@ -1,3 +1,4 @@
+import { DialogueError } from './DialogueError.ts';
 import { ILogger, noopLogger } from './Logger.ts';
 
 export interface ReconnectingWebsocketConfig {
@@ -5,6 +6,27 @@ export interface ReconnectingWebsocketConfig {
 	 * Get the full connection URL, including any authentication.
 	 */
 	getUrl: () => Promise<string> | string;
+
+	/**
+	 * Initial delay for reconnection
+	 */
+	initialReconnectDelay?: number;
+
+	/**
+	 * Maximum delay for reconnection
+	 */
+	maxReconnectDelay?: number;
+
+	/**
+	 * Factor by which to multiply the reconnect delay on each attempt
+	 */
+	reconnectDelayFactor?: number;
+
+	/**
+	 * Maximum number of reconnection attempts before giving up
+	 */
+	maxReconnectAttempts?: number;
+
 	/**
 	 * Override platform primitives like fetch and
 	 * WebSocket if you like.
@@ -36,16 +58,38 @@ export class ReconnectingWebsocket {
 	}
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private abortReconnect = false;
-	private reconnectInterval = 3000;
+	private nextReconnectDelay;
 	private reconnectAttempts = 0;
 
 	constructor(
 		private config: ReconnectingWebsocketConfig,
 		private logger: ILogger = noopLogger,
-	) {}
+	) {
+		this.nextReconnectDelay = this.#initialReconnectDelay;
+	}
+
+	get reconnecting() {
+		return this.#status === 'reconnecting' || !!this.reconnectTimeout;
+	}
 
 	get #logger() {
 		return this.logger ?? noopLogger;
+	}
+
+	get #maxReconnectAttempts() {
+		return this.config.maxReconnectAttempts ?? 5;
+	}
+
+	get #initialReconnectDelay() {
+		return this.config.initialReconnectDelay ?? 3000;
+	}
+
+	get #maxReconnectDelay() {
+		return this.config.maxReconnectDelay ?? 30000;
+	}
+
+	get #reconnectDelayFactor() {
+		return this.config.reconnectDelayFactor ?? 2;
 	}
 
 	send = (message: string) => {
@@ -103,6 +147,21 @@ export class ReconnectingWebsocket {
 		}
 	};
 
+	#getUrl = async () => {
+		try {
+			const url = await this.config.getUrl();
+			this.#logger.debug('Got socket URL', this.#id, url);
+			return url;
+		} catch (e) {
+			this.#logger.error('Failed to get socket URL', this.#id, e);
+			throw new DialogueError(
+				DialogueError.Code.GetUrlFailed,
+				'Failed to get socket URL',
+				{ cause: e },
+			);
+		}
+	};
+
 	reconnect = async () => {
 		if (this.abortReconnect) {
 			this.#logger.debug(
@@ -111,8 +170,11 @@ export class ReconnectingWebsocket {
 			);
 			this.abortReconnect = false;
 		}
-		if (this.reconnectAttempts >= 5) {
-			this.#logger.error('Max reconnect attempts reached, giving up', this.#id);
+		if (this.reconnectAttempts >= this.#maxReconnectAttempts) {
+			this.#logger.error(
+				`Max reconnect attempts ${this.#maxReconnectAttempts} reached, giving up`,
+				this.#id,
+			);
 			return;
 		}
 		if (this.#status === 'reconnecting') {
@@ -128,8 +190,8 @@ export class ReconnectingWebsocket {
 			this.reconnectTimeout = null;
 		}
 		try {
-			const url = await this.config.getUrl();
 			this.websocket?.close(1000, 'Forced reconnect');
+			const url = await this.#getUrl();
 			const WS = this.config.environment?.WebSocket ?? WebSocket;
 			const websocket = (this.websocket = new WS(url));
 
@@ -146,7 +208,7 @@ export class ReconnectingWebsocket {
 				this.connectionEvents.dispatchEvent(new Event('connect'));
 
 				this.reconnectAttempts = 0;
-				this.reconnectInterval = 3000;
+				this.nextReconnectDelay = this.#initialReconnectDelay;
 
 				if (this.backlog.length) {
 					this.backlog.forEach((msg) => websocket.send(msg));
@@ -188,17 +250,53 @@ export class ReconnectingWebsocket {
 				const err =
 					event instanceof ErrorEvent ?
 						event.error
-					:	new Error('Unknown error');
+					:	new DialogueError(DialogueError.Code.Unknown, 'Unknown error', {
+							cause: event,
+						});
 				this.errorEvents.dispatchEvent(
 					new ErrorEvent('error', {
 						error: err,
 					}),
 				);
 			});
+
+			return new Promise<void>((resolve) => {
+				this.connectionEvents.addEventListener('connect', () => resolve(), {
+					once: true,
+				});
+			});
 		} catch (e) {
 			this.#logger.error('Failed to reconnect socket', this.#id, e);
+			this.errorEvents.dispatchEvent(
+				new ErrorEvent('error', {
+					error:
+						e instanceof Error ? e : (
+							new DialogueError(
+								DialogueError.Code.Unknown,
+								'Unknown error during reconnect',
+								{ cause: e },
+							)
+						),
+					message:
+						e instanceof Error ? e.message : 'Unknown error during reconnect',
+				}),
+			);
 			this.#status = 'closed';
-			this.#queueReconnect();
+			if (
+				e instanceof DialogueError &&
+				e.code === DialogueError.Code.GetUrlFailed
+			) {
+				// don't attempt to reconnect immediately if we failed to get the URL.
+				// the user's getUrl method should retry itself if the request is retryable...
+				// otherwise, it's out of our hands.
+				this.#logger.error(
+					'Not reconnecting due to failure to get URL',
+					this.#id,
+				);
+				throw e;
+			} else {
+				this.#queueReconnect();
+			}
 		}
 	};
 
@@ -210,17 +308,18 @@ export class ReconnectingWebsocket {
 			'Queueing socket reconnect',
 			this.#id,
 			'in',
-			this.reconnectInterval,
+			this.nextReconnectDelay,
 			'ms',
 			'attempt',
 			this.reconnectAttempts + 1,
 		);
-		this.reconnectTimeout = setTimeout(this.reconnect, this.reconnectInterval);
+		this.reconnectTimeout = setTimeout(this.reconnect, this.nextReconnectDelay);
 		this.reconnectAttempts++;
 		// Exponential backoff with a max of 30s
-		this.reconnectInterval = Math.min(
-			30000,
-			this.reconnectInterval * 2 ** this.reconnectAttempts,
+		this.nextReconnectDelay = Math.min(
+			this.#maxReconnectDelay,
+			this.nextReconnectDelay *
+				this.#reconnectDelayFactor ** this.reconnectAttempts,
 		);
 	};
 }

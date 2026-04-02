@@ -191,7 +191,7 @@ export class Connection<
 	 * Initiates the connection.
 	 */
 	open = () => {
-		this.websocket.reconnect();
+		return this.websocket.reconnect();
 	};
 
 	/**
