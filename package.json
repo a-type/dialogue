@@ -22,7 +22,7 @@
 	"sideEffects": false,
 	"scripts": {
 		"test": "vitest",
-		"test:ci": "vitest --run --reporter=dot",
+		"test:ci": "vitest run",
 		"build": "tsc -p tsconfig.json",
 		"prepublishOnly": "pnpm build",
 		"bump": "bumpp"
