@@ -15,6 +15,11 @@
 	"publishConfig": {
 		"access": "public"
 	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"sideEffects": false,
 	"scripts": {
 		"test": "pnpm run --parallel --filter . \"/test:.*/\"",
 		"test:server": "pnpx kill-port 8298 && node test/server.ts",
