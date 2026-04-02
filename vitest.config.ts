@@ -12,5 +12,6 @@ export default defineConfig({
 			instances: [{ browser: 'chromium' }],
 			screenshotFailures: false,
 		},
+		globalSetup: './test/globalSetup.ts',
 	},
 });

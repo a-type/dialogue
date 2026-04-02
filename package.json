@@ -21,9 +21,8 @@
 	],
 	"sideEffects": false,
 	"scripts": {
-		"test": "pnpm run --parallel --filter . \"/test:.*/\"",
-		"test:server": "pnpx kill-port 8298 && node test/server.ts",
-		"test:run": "vitest",
+		"test": "vitest",
+		"test:ci": "vitest --run --reporter=dot",
 		"build": "tsc -p tsconfig.json",
 		"prepublishOnly": "pnpm build",
 		"bump": "bumpp"

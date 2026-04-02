@@ -1,7 +1,8 @@
-import { expect, it, vi } from 'vitest';
+import { expect, inject, it, vi } from 'vitest';
 import { z } from 'zod/v4-mini';
 import { Connection, defineConfig, Logger } from '../src/index.js';
-import { port } from './common.js';
+
+const port = inject('SERVER_PORT');
 
 const clientMessage = z.union([
 	z.object({ type: z.literal('ping') }),
