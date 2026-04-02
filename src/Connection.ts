@@ -68,6 +68,16 @@ export interface ConnectionConfig<
 	) => boolean;
 
 	/**
+	 * Choose what to do if an invalid server message is received -
+	 * i.e. any parsed message which doesn't pass your parseServerMessage
+	 * validation. This will be called with the raw (string) form of
+	 * the message and any error thrown by your parser or by JSON.parse.
+	 *
+	 * By default this just ignores invalid messages.
+	 */
+	onInvalidServerMessage?: (message: any, parseError: unknown) => void;
+
+	/**
 	 * Set to true to initiate connection on construction.
 	 * Otherwise, call open() when desired.
 	 */
@@ -217,8 +227,8 @@ export class Connection<
 			if (!(event instanceof MessageEvent)) {
 				return;
 			}
-			const data = this.#marshalServerMessage(event.data);
 			try {
+				const data = this.#marshalServerMessage(event.data);
 				const parsed = this.config.parseServerMessage(data);
 				if (type === '*' || this.#isMessageWithType(parsed, type)) {
 					handler(
@@ -230,7 +240,7 @@ export class Connection<
 					);
 				}
 			} catch (err) {
-				this.#logger.error('Error handling message', err);
+				this.config.onInvalidServerMessage?.(event.data, err);
 			}
 		});
 	};

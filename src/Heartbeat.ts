@@ -32,6 +32,7 @@ export interface HeartbeatConfig {
 export class Heartbeat {
 	private intervalId: ReturnType<typeof setInterval> | null = null;
 	private lastPongAt = Date.now();
+	#pongEvents = new EventTarget();
 
 	constructor(
 		private socket: ReconnectingWebsocket,
@@ -43,10 +44,11 @@ export class Heartbeat {
 				return;
 			}
 
-			if (!config.isPong) {
+			if (!this.config.isPong || this.config.isPong(message.data)) {
 				this.lastPongAt = Date.now();
-			} else if (config.isPong(message.data)) {
-				this.lastPongAt = Date.now();
+				this.#pongEvents.dispatchEvent(
+					new MessageEvent('pong', { data: message.data }),
+				);
 			}
 		});
 	}
@@ -78,12 +80,21 @@ export class Heartbeat {
 		}
 		this.socket.send(this.#getPing());
 		const timeout = this.config.pongTimeout ?? 2000;
-		setTimeout(() => {
+		const pongTimeout = setTimeout(() => {
 			if (Date.now() - this.lastPongAt > timeout) {
 				this.logger?.warn('No pong received, reconnecting socket');
 				this.socket.reconnect();
 			}
 		}, timeout);
+		this.#pongEvents.addEventListener(
+			'pong',
+			() => {
+				clearTimeout(pongTimeout);
+			},
+			{
+				once: true,
+			},
+		);
 	};
 
 	/**

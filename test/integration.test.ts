@@ -214,3 +214,30 @@ it('detects a failed heartbeat', async ({ onTestFinished }) => {
 	});
 	expect(onConnect).toHaveBeenCalledTimes(1);
 });
+
+it('survives a few heartbeat cycles without reconnecting', async ({
+	onTestFinished,
+}) => {
+	const socket = await setup({
+		heartbeat: {
+			interval: 100,
+			pongTimeout: 200,
+		},
+	});
+	onTestFinished(() => socket.close());
+
+	const onConnect = vi.fn();
+	socket.websocket.onConnect(onConnect);
+
+	// wait for a few heartbeats to ensure it's working
+	await new Promise<void>((resolve) => {
+		let count = 0;
+		socket.on('pong', () => {
+			count++;
+			if (count === 3) {
+				resolve();
+			}
+		});
+	});
+	expect(onConnect).toHaveBeenCalledTimes(0);
+});

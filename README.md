@@ -146,3 +146,5 @@ Turn off default logging with `config.logger: false` or pass it your own object 
 When using the default logging, show debug messages by setting `DEBUG` to `dialogue` or `true` in `localStorage`.
 
 To tune the reconnection backoff settings, see options on `config.websocket`: `initialReconnectDelay`, `maxReconnectDelay`, `reconnectDelayFactor`, `maxReconnectAttempts`.
+
+Invalid server messages are ignored by default. To handle them, pass `config.onInvalidServerMessage`. It receives the raw string message, and the error from either JSON.parse or your server message validator.
