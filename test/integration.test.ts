@@ -1,6 +1,11 @@
 import { expect, inject, it, vi } from 'vitest';
 import { z } from 'zod/v4-mini';
-import { Connection, defineConfig, Logger } from '../src/index.js';
+import {
+	Connection,
+	defineConfig,
+	Logger,
+	OmitMessageProperty,
+} from '../src/index.js';
 
 const port = inject('SERVER_PORT');
 
@@ -10,6 +15,9 @@ const clientMessage = z.union([
 	z.object({ type: z.literal('stop-heartbeat') }),
 	z.object({ type: z.literal('request'), id: z.string() }),
 ]);
+type ClientMessage = z.infer<typeof clientMessage>;
+// pre-processing, the "request" message type has no id
+type ClientMessageBeforeProcessing = OmitMessageProperty<ClientMessage, 'id'>;
 
 const serverMessage = z.union([
 	z.object({ type: z.literal('welcome') }),
@@ -35,6 +43,12 @@ const baseConfig = defineConfig({
 			serverMessage.type === 'response' &&
 			clientMessage.id === serverMessage.messageId
 		);
+	},
+	preprocessClientMessage: (message: ClientMessageBeforeProcessing) => {
+		if (message.type === 'request') {
+			return { ...message, id: crypto.randomUUID() };
+		}
+		return message;
 	},
 });
 
@@ -68,6 +82,17 @@ it('automatically reconnects', async ({ onTestFinished }) => {
 	expect(onConnect).toHaveBeenCalledTimes(1);
 });
 
+it('preprocesses messages', async ({ onTestFinished }) => {
+	const socket = await setup();
+	onTestFinished(() => socket.close());
+
+	const onMessage = vi.fn();
+	socket.on('*', onMessage);
+	const processed = socket.send({ type: 'request' });
+
+	expect(processed).toHaveProperty('id');
+});
+
 it('subscribes to all messages', async ({ onTestFinished }) => {
 	const socket = await setup();
 	onTestFinished(() => socket.close());
@@ -76,7 +101,7 @@ it('subscribes to all messages', async ({ onTestFinished }) => {
 	socket.on('*', onMessage);
 
 	// various types of messages to trigger server responses
-	socket.send({ type: 'request', id: '123' });
+	socket.send({ type: 'request' });
 	socket.heartbeat.ping();
 
 	await vi.waitFor(
@@ -96,7 +121,7 @@ it('subscribes to all messages', async ({ onTestFinished }) => {
 
 	expect(onMessage).toHaveBeenCalledWith({
 		type: 'response',
-		messageId: '123',
+		messageId: expect.any(String),
 	});
 	expect(onMessage).toHaveBeenCalledWith({ type: 'pong' });
 });
@@ -105,8 +130,8 @@ it('waits for a response', async ({ onTestFinished }) => {
 	const socket = await setup();
 	onTestFinished(() => socket.close());
 
-	const response = await socket.request({ type: 'request', id: '123' });
-	expect(response).toEqual({ type: 'response', messageId: '123' });
+	const response = await socket.request({ type: 'request' });
+	expect(response).toEqual({ type: 'response', messageId: expect.any(String) });
 });
 
 it('detects a failed heartbeat', async ({ onTestFinished }) => {

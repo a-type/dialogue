@@ -26,6 +26,7 @@ export interface ConnectionConfig<
 		DiscriminatedMessage<TDiscriminatorKey>,
 	TClientMessage extends DiscriminatedMessage<TDiscriminatorKey> =
 		DiscriminatedMessage<TDiscriminatorKey>,
+	TClientMessageBeforeProcessing = TClientMessage,
 > {
 	/**
 	 * Connection relies on a "discriminator" key in messages to
@@ -48,6 +49,13 @@ export interface ConnectionConfig<
 	 * @throws If the message is invalid, you can throw an error to trigger the error handling logic
 	 */
 	parseServerMessage: (message: any) => TServerMessage;
+	/**
+	 * Optionally preprocess client messages before they are validated and sent.
+	 * This is a great way to automatically add fields like timestamps or ids.
+	 */
+	preprocessClientMessage?: (
+		message: TClientMessageBeforeProcessing,
+	) => TClientMessage;
 
 	/**
 	 * Customize the logic to decide whether an incoming message is an
@@ -92,7 +100,15 @@ export function defineConfig<
 	TDiscriminatorKey extends string,
 	TServerMessage extends DiscriminatedMessage<TDiscriminatorKey>,
 	TClientMessage extends DiscriminatedMessage<TDiscriminatorKey>,
->(config: ConnectionConfig<TDiscriminatorKey, TServerMessage, TClientMessage>) {
+	TClientMessageBeforeProcessing = TClientMessage,
+>(
+	config: ConnectionConfig<
+		TDiscriminatorKey,
+		TServerMessage,
+		TClientMessage,
+		TClientMessageBeforeProcessing
+	>,
+) {
 	return config;
 }
 
@@ -100,6 +116,7 @@ export class Connection<
 	TDiscriminatorKey extends string,
 	TServerMessage extends DiscriminatedMessage<TDiscriminatorKey>,
 	TClientMessage extends DiscriminatedMessage<TDiscriminatorKey>,
+	TClientMessageBeforeProcessing = TClientMessage,
 > {
 	/**
 	 * Direct access to the lower-level socket. This is still an
@@ -117,7 +134,8 @@ export class Connection<
 		private config: ConnectionConfig<
 			TDiscriminatorKey,
 			TServerMessage,
-			TClientMessage
+			TClientMessage,
+			TClientMessageBeforeProcessing
 		>,
 	) {
 		this.websocket = new ReconnectingWebsocket(config.websocket, this.#logger);
@@ -146,6 +164,15 @@ export class Connection<
 
 	#marshalClientMessage = (message: TClientMessage): any => {
 		return JSON.stringify(message);
+	};
+
+	#preprocessClientMessage = (
+		message: TClientMessageBeforeProcessing,
+	): TClientMessage => {
+		if (this.config.preprocessClientMessage) {
+			return this.config.preprocessClientMessage(message);
+		}
+		return message as unknown as TClientMessage;
 	};
 
 	#isMessageWithType(
@@ -221,28 +248,42 @@ export class Connection<
 		return unsub;
 	};
 
-	send = (message: TClientMessage) => {
-		try {
-			const parsed = this.config.parseClientMessage(message);
-			const marshaled = this.#marshalClientMessage(parsed);
-			this.websocket.send(marshaled);
-		} catch (err) {
-			this.#logger.error('Error sending message', err);
-		}
+	/**
+	 * Sends a message to the server. The message will be preprocessed
+	 * (if specified), validated, and converted to a string.
+	 *
+	 * Returns the processed and validated message.
+	 *
+	 * @throws If your client message validator throws an error, it will
+	 * be thrown when calling this function.
+	 */
+	send = (message: TClientMessageBeforeProcessing) => {
+		const preprocessed = this.#preprocessClientMessage(message);
+		const parsed = this.config.parseClientMessage(preprocessed);
+		const marshaled = this.#marshalClientMessage(parsed);
+		this.websocket.send(marshaled);
+		return parsed;
 	};
 
+	/**
+	 * Sends a message and waits for a response. The response is determined
+	 * by the getIsResponse function in the config. If the response doesn't
+	 * arrive within the specified timeout, the promise is rejected.
+	 *
+	 * @throws If your client message validator throws an error, it will
+	 * be thrown when calling this function. If the response times out, a
+	 * DialogueError with code RequestTimeout is thrown.
+	 */
 	request = <TExpectedResponse extends TServerMessage = TServerMessage>(
-		message: TClientMessage,
+		message: TClientMessageBeforeProcessing,
 		{ timeout = 5000 } = {},
 	): Promise<TExpectedResponse> => {
-		const messageId = Math.random().toString().slice(2);
-		(message as any).messageId = messageId;
-
+		let processedMessage: TClientMessage;
 		const response = new Promise<TServerMessage>((resolve, reject) => {
 			const unsub = this.on('*', (serverMessage) => {
 				if (
 					!this.config.getIsResponse ||
-					this.config.getIsResponse?.(message, serverMessage)
+					this.config.getIsResponse?.(processedMessage, serverMessage)
 				) {
 					unsub();
 					resolve(serverMessage);
@@ -259,7 +300,7 @@ export class Connection<
 			}, timeout);
 		});
 
-		this.send(message);
+		processedMessage = this.send(message);
 
 		return response as Promise<TExpectedResponse>;
 	};

@@ -31,6 +31,7 @@ const clientMessageSchema = z.union([
 	z.object({ type: z.literal('chat'), message: z.string() }),
 	z.object({ type: z.literal('ack-this'), id: z.string() }),
 ]);
+type ClientMessage = z.infer<typeof clientMessageSchema>;
 const serverMessageSchema = z.union([
 	z.object({ type: z.literal('pong') }),
 	z.object({ type: z.literal('new-chat'), message: z.string() }),
@@ -63,6 +64,21 @@ const connection = new Connection({
 			return serverMsg.ackedId === clientMsg.id;
 		}
 		return false;
+	},
+	// optional: apply pre-processing to all outgoing messages, like adding
+	// a timestamp or generating an ID. you must manually specify a type
+	// for the parameter, which becomes the type used for validating send()
+	// and request() automatically.
+	preprocessClientMessage: (
+		input: OmitMessageProperty<ClientMessage, 'id'>,
+	) => {
+		if (input.type === 'ack-this') {
+			return {
+				...input,
+				id: Math.random().toString(),
+			};
+		}
+		return input;
 	},
 	// optional: configure heartbeat
 	heartbeat: {
