@@ -19,7 +19,9 @@
 		"test": "pnpm run --parallel --filter . \"/test:.*/\"",
 		"test:server": "pnpx kill-port 8298 && node test/server.ts",
 		"test:run": "vitest",
-		"build": "tsc -p tsconfig.json"
+		"build": "tsc -p tsconfig.json",
+		"prepublishOnly": "pnpm build",
+		"bump": "bumpp"
 	},
 	"keywords": [],
 	"author": "",
