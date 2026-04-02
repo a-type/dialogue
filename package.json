@@ -12,6 +12,9 @@
 			"types": "./dist/index.d.ts"
 		}
 	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"test": "pnpm run --parallel --filter . \"/test:.*/\"",
 		"test:server": "pnpx kill-port 8298 && node test/server.ts",
