@@ -1,0 +1,16 @@
+{
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", "dist"],
+	"compilerOptions": {
+		"target": "ES2020",
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"lib": ["DOM", "ESNext"],
+		"rootDir": "./src",
+		"outDir": "dist",
+		"declaration": true,
+		"declarationDir": "dist",
+		"allowImportingTsExtensions": true,
+		"rewriteRelativeImportExtensions": true
+	}
+}
