@@ -1,3 +1,4 @@
+import { DialogueError } from './DialogueError.ts';
 import { Heartbeat, HeartbeatConfig } from './Heartbeat.ts';
 import { ILogger, Logger, noopLogger } from './Logger.ts';
 import {
@@ -64,8 +65,20 @@ export interface ConnectionConfig<
 	 */
 	openImmediately?: boolean;
 
+	/**
+	 * Configure heartbeat options
+	 */
 	heartbeat?: HeartbeatConfig;
+
+	/**
+	 * Configure the websocket connection
+	 */
 	websocket: ReconnectingWebsocketConfig;
+
+	/**
+	 * Turn off default logging or provide a custom
+	 * logger interface
+	 */
 	logger?: ILogger | false;
 }
 
@@ -150,8 +163,8 @@ export class Connection<
 	/**
 	 * Initiates the connection.
 	 */
-	open = async () => {
-		await this.websocket.reconnect();
+	open = () => {
+		this.websocket.reconnect();
 	};
 
 	/**
@@ -218,10 +231,10 @@ export class Connection<
 		}
 	};
 
-	request = (
+	request = <TExpectedResponse extends TServerMessage = TServerMessage>(
 		message: TClientMessage,
-		timeout = 5000,
-	): Promise<TServerMessage> => {
+		{ timeout = 5000 } = {},
+	): Promise<TExpectedResponse> => {
 		const messageId = Math.random().toString().slice(2);
 		(message as any).messageId = messageId;
 
@@ -237,12 +250,17 @@ export class Connection<
 			});
 			setTimeout(() => {
 				unsub();
-				reject(new Error('Request timed out'));
+				reject(
+					new DialogueError(
+						DialogueError.Code.RequestTimeout,
+						`Request timed out: ${JSON.stringify(message)}`,
+					),
+				);
 			}, timeout);
 		});
 
-		this.websocket.send(JSON.stringify(message));
+		this.send(message);
 
-		return response;
+		return response as Promise<TExpectedResponse>;
 	};
 }

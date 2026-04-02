@@ -6,15 +6,10 @@ export interface ReconnectingWebsocketConfig {
 	 */
 	getUrl: () => Promise<string> | string;
 	/**
-	 * Add extra options to the connection request.
-	 */
-	fetchOptions?: RequestInit;
-	/**
 	 * Override platform primitives like fetch and
 	 * WebSocket if you like.
 	 */
 	environment?: {
-		fetch?: typeof fetch;
 		WebSocket?: typeof WebSocket;
 	};
 	/**
@@ -135,7 +130,8 @@ export class ReconnectingWebsocket {
 		try {
 			const url = await this.config.getUrl();
 			this.websocket?.close(1000, 'Forced reconnect');
-			const websocket = (this.websocket = new WebSocket(url));
+			const WS = this.config.environment?.WebSocket ?? WebSocket;
+			const websocket = (this.websocket = new WS(url));
 
 			websocket.addEventListener('open', () => {
 				if (this.abortReconnect) {
