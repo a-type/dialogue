@@ -14,6 +14,7 @@ A small&mdash;opinionated&mdash;robust&mdash;convenient WebSocket wrapper.
 - `once()`
 - Send a "request" message which awaits a response
 - Preprocess outgoing messages
+- No dependencies
 
 ## Get started
 
